@@ -59,11 +59,21 @@ type MapReduce struct {
   alive bool
   l net.Listener
   stats *list.List
+  mapDone int
+  reduceDone int
+  jobDoneChannel chan JobType
+  redoJobChannel chan JobInfo
 
   // Map of registered workers that you need to keep up to date
-  Workers map[string]*WorkerInfo 
+  Workers map[string]*WorkerInfo
 
   // add any additional state here
+}
+
+type JobInfo struct {
+  Type JobType
+  Number int
+  NumOther int
 }
 
 func InitMapReduce(nmap int, nreduce int,
@@ -76,6 +86,10 @@ func InitMapReduce(nmap int, nreduce int,
   mr.alive = true
   mr.registerChannel = make(chan string)
   mr.DoneChannel = make(chan bool)
+  mr.mapDone = 0
+  mr.reduceDone = 0
+  mr.jobDoneChannel = make(chan JobType)
+  mr.redoJobChannel = make(chan JobInfo)
 
   // initialize any additional state here
   return mr
@@ -203,7 +217,7 @@ func DoMap(JobNumber int, fileName string,
     log.Fatal("DoMap: ", err);
   }
   size := fi.Size()
-  fmt.Printf("DoMap: read split %s %d\n", name, size)
+  // fmt.Printf("DoMap: read split %s %d\n", name, size)
   b := make([]byte, size);
   _, err = file.Read(b);
   if err != nil {
@@ -242,7 +256,7 @@ func DoReduce(job int, fileName string, nmap int,
   kvs := make(map[string]*list.List)
   for i := 0; i < nmap; i++ {
     name := ReduceName(fileName, i, job)
-    fmt.Printf("DoReduce: read %s\n", name)
+    // fmt.Printf("DoReduce: read %s\n", name)
     file, err := os.Open(name)
     if err != nil {
       log.Fatal("DoReduce: ", err);
@@ -257,7 +271,7 @@ func DoReduce(job int, fileName string, nmap int,
       _, ok := kvs[kv.Key]
       if !ok {
         kvs[kv.Key] = list.New()
-      } 
+      }
       kvs[kv.Key].PushBack(kv.Value)
     }
     file.Close()
@@ -287,7 +301,7 @@ func (mr *MapReduce) Merge() {
   kvs := make(map[string]string)
   for i := 0; i < mr.nReduce; i++ {
     p := MergeName(mr.file, i)
-    fmt.Printf("Merge: read %s\n", p)
+    // fmt.Printf("Merge: read %s\n", p)
     file, err := os.Open(p)
     if err != nil {
       log.Fatal("Merge: ", err);

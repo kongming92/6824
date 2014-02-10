@@ -4,15 +4,27 @@ import "os"
 import "fmt"
 import "mapreduce"
 import "container/list"
+import "strings"
+import "unicode"
+import "strconv"
 
 // our simplified version of MapReduce does not supply a
 // key to the Map function, as in the paper; only a value,
 // which is a part of the input file contents
 func Map(value string) *list.List {
+  l := new(list.List).Init()
+  words := strings.FieldsFunc(value, func(r rune) bool {
+      return !unicode.IsLetter(r)
+  })
+  for _, word := range words {
+    l.PushBack(mapreduce.KeyValue{word, "1"})
+  }
+  return l
 }
 
 // iterate over list and add values
 func Reduce(key string, values *list.List) string {
+  return strconv.FormatInt(int64(values.Len()), 10)
 }
 
 // Can be run in 3 ways:
@@ -26,7 +38,7 @@ func main() {
     if os.Args[3] == "sequential" {
       mapreduce.RunSingle(5, 3, os.Args[2], Map, Reduce)
     } else {
-      mr := mapreduce.MakeMapReduce(5, 3, os.Args[2], os.Args[3])    
+      mr := mapreduce.MakeMapReduce(5, 3, os.Args[2], os.Args[3])
       // Wait until MR is done
       <- mr.DoneChannel
     }
