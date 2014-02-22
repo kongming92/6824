@@ -46,16 +46,12 @@ type SetEntireReply struct {
 }
 
 type BKGetArgs struct {
-  Key string
-  Xid string
+  Args *GetArgs
   Viewnum uint
 }
 
 type BKPutArgs struct {
-  Key string
-  Value string
-  DoHash bool
-  Xid string
+  Args *PutArgs
   Viewnum uint
 }
 

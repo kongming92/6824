@@ -66,7 +66,7 @@ func (pb *PBServer) Put(args *PutArgs, reply *PutReply) error {
     return nil
   }
 
-  bkArgs := &BKPutArgs{args.Key, args.Value, args.DoHash, args.Xid, pb.view.Viewnum}
+  bkArgs := &BKPutArgs{args, pb.view.Viewnum}
   var bkReply PutReply
   success := false
   for pb.view.Backup != "" && !success {
@@ -102,47 +102,47 @@ func (pb *PBServer) Put(args *PutArgs, reply *PutReply) error {
   return nil
 }
 
-func (pb *PBServer) BKGet(args *GetArgs, reply *GetReply) error {
+func (pb *PBServer) BKGet(args *BKGetArgs, reply *GetReply) error {
   pb.mu.Lock()
   defer pb.mu.Unlock()
 
   // If you're not the backup, don't serve anything
-  if pb.view.Backup != pb.me {
+  if pb.view.Backup != pb.me || pb.view.Viewnum != args.Viewnum{
     reply.Err = ErrWrongServer
     reply.Value = ""
     return nil
   }
 
-  if pb.seen[args.Xid] {
-    reply.Value = pb.old[args.Xid]
+  if pb.seen[args.Args.Xid] {
+    reply.Value = pb.old[args.Args.Xid]
   } else {
-    val := pb.table[args.Key]
+    val := pb.table[args.Args.Key]
     reply.Value = val
-    pb.seen[args.Xid] = true
-    pb.old[args.Xid] = val
+    pb.seen[args.Args.Xid] = true
+    pb.old[args.Args.Xid] = val
   }
   reply.Err = OK
   return nil
 }
 
-func (pb *PBServer) BKPut(args *PutArgs, reply *PutReply) error {
+func (pb *PBServer) BKPut(args *BKPutArgs, reply *PutReply) error {
   pb.mu.Lock()
   defer pb.mu.Unlock()
 
   // If you're not the backup, don't serve anything
-  if pb.view.Backup != pb.me {
+  if pb.view.Backup != pb.me || pb.view.Viewnum != args.Viewnum {
     reply.Err = ErrWrongServer
     reply.PreviousValue = ""
     return nil
   }
 
-  if pb.seen[args.Xid] {
-    reply.PreviousValue = pb.old[args.Xid]
+  if pb.seen[args.Args.Xid] {
+    reply.PreviousValue = pb.old[args.Args.Xid]
   } else {
-    prev := pb.doPut(args)
+    prev := pb.doPut(args.Args)
     reply.PreviousValue = prev
-    pb.seen[args.Xid] = true
-    pb.old[args.Xid] = prev
+    pb.seen[args.Args.Xid] = true
+    pb.old[args.Args.Xid] = prev
   }
   reply.Err = OK
   return nil
@@ -160,7 +160,7 @@ func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
     return nil
   }
 
-  bkArgs := &BKGetArgs{args.Key, args.Xid, pb.view.Viewnum}
+  bkArgs := &BKGetArgs{args, pb.view.Viewnum}
   var bkReply GetReply
   success := false
   for pb.view.Backup != "" && !success {

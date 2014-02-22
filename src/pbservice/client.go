@@ -123,8 +123,6 @@ func (ck *Clerk) PutExt(key string, value string, dohash bool) string {
     ck.primary = ck.vs.Primary()
   }
 
-  // fmt.Println("call to put")
-  // fmt.Println(ck)
   tries := 0
   xid := strconv.FormatInt(ck.clientId, 10) + strconv.Itoa(ck.seq)
 
@@ -148,7 +146,6 @@ func (ck *Clerk) PutExt(key string, value string, dohash bool) string {
 }
 
 func (ck *Clerk) Put(key string, value string) {
-  // fmt.Println(key + " " + value)
   ck.PutExt(key, value, false)
 }
 
