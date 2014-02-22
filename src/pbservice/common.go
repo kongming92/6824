@@ -14,7 +14,7 @@ type PutArgs struct {
   Value string
   DoHash bool // For PutHash
   // You'll have to add definitions here.
-
+  Xid string
   // Field names must start with capital letters,
   // otherwise RPC will break.
 }
@@ -27,6 +27,7 @@ type PutReply struct {
 type GetArgs struct {
   Key string
   // You'll have to add definitions here.
+  Xid string
 }
 
 type GetReply struct {
@@ -34,6 +35,29 @@ type GetReply struct {
   Value string
 }
 
+type SetEntireArgs struct {
+  Table map[string]string
+  Seen map[string]bool
+  Old map[string]string
+}
+
+type SetEntireReply struct {
+  OK string
+}
+
+type BKGetArgs struct {
+  Key string
+  Xid string
+  Viewnum uint
+}
+
+type BKPutArgs struct {
+  Key string
+  Value string
+  DoHash bool
+  Xid string
+  Viewnum uint
+}
 
 // Your RPC definitions here.
 

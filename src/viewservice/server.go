@@ -15,6 +15,10 @@ type ViewServer struct {
   dead bool
   me string
 
+  recent map[string]time.Time
+  current View
+  next View
+  ackd bool
 
   // Your declarations here.
 }
@@ -23,19 +27,59 @@ type ViewServer struct {
 // server Ping RPC handler.
 //
 func (vs *ViewServer) Ping(args *PingArgs, reply *PingReply) error {
+  vs.mu.Lock()
+  defer vs.mu.Unlock()
 
-  // Your code here.
+  vs.recent[args.Me] = time.Now()
+
+  if args.Viewnum == 0 {
+    if vs.current.Viewnum == 0 { // just started, accept first thing as primary
+      vs.current = View{1, args.Me, ""}
+      vs.next = View{1, args.Me, ""}
+    } else if vs.current.Backup == "" && args.Me != vs.current.Primary {
+      // no backup, new server connects
+      vs.setNext(vs.current.Primary, args.Me)
+    } else if args.Me == vs.current.Primary {
+      // primary goes down, set primary to backup
+      vs.setNext(vs.current.Backup, "")
+    } else if args.Me == vs.current.Backup {
+      // backup goes down, remove backup
+      vs.setNext(vs.current.Primary, "")
+    }
+  } else if args.Me != vs.current.Primary && vs.current.Backup == "" {
+    vs.setNext(vs.current.Primary, args.Me)
+  }
+
+  // check if the current ping is the primary
+  // if primary is pinging with current viewnum, it is ack'd
+  // this means we can change views if there's something to be changed
+  if args.Me == vs.current.Primary && args.Viewnum == vs.current.Viewnum {
+    vs.ackd = true
+  }
+
+  // if next is different (it is updated) then set it to be the current
+  if vs.ackd && vs.current != vs.next {
+    vs.current = vs.next
+    vs.ackd = false
+  }
+
+  reply.View = vs.current
 
   return nil
 }
 
-// 
+func (vs *ViewServer) setNext(primary, backup string) {
+  vs.next = View{vs.current.Viewnum + 1, primary, backup}
+}
+
+//
 // server Get() RPC handler.
 //
 func (vs *ViewServer) Get(args *GetArgs, reply *GetReply) error {
+  vs.mu.Lock()
+  defer vs.mu.Unlock()
 
-  // Your code here.
-
+  reply.View = vs.current
   return nil
 }
 
@@ -46,8 +90,18 @@ func (vs *ViewServer) Get(args *GetArgs, reply *GetReply) error {
 // accordingly.
 //
 func (vs *ViewServer) tick() {
+  vs.mu.Lock()
+  defer vs.mu.Unlock()
 
-  // Your code here.
+  for server, t := range(vs.recent) {
+    if (time.Since(t)) > (PingInterval * DeadPings) {
+      if server == vs.current.Primary {
+        vs.setNext(vs.current.Backup, "")
+      } else if server == vs.current.Backup {
+        vs.setNext(vs.current.Primary, "")
+      }
+    }
+  }
 }
 
 //
@@ -63,7 +117,12 @@ func (vs *ViewServer) Kill() {
 func StartServer(me string) *ViewServer {
   vs := new(ViewServer)
   vs.me = me
+
   // Your vs.* initializations here.
+  vs.recent = make(map[string]time.Time)
+  vs.current = View{0, "", ""}
+  vs.next = vs.current
+  vs.ackd = false
 
   // tell net/rpc about our RPC server and handlers.
   rpcs := rpc.NewServer()

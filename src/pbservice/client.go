@@ -6,25 +6,34 @@ import "fmt"
 
 // You'll probably need to uncomment these:
 // import "time"
-// import "crypto/rand"
-// import "math/big"
+import "crypto/rand"
+import "math/big"
+import "strconv"
 
-
+func nrand() int64 {
+  max := big.NewInt(int64(1) << 62)
+  bigx, _ := rand.Int(rand.Reader, max)
+  x := bigx.Int64()
+  return x
+}
 
 type Clerk struct {
   vs *viewservice.Clerk
   // Your declarations here
+  primary string
+  seq int
+  clientId int64
 }
-
 
 func MakeClerk(vshost string, me string) *Clerk {
   ck := new(Clerk)
   ck.vs = viewservice.MakeClerk(me, vshost)
   // Your ck.* initializations here
-
+  ck.primary = ck.vs.Primary()
+  ck.seq = 0
+  ck.clientId = nrand()
   return ck
 }
-
 
 //
 // call() sends an RPC to the rpcname handler on server srv
@@ -49,7 +58,7 @@ func call(srv string, rpcname string,
     return false
   }
   defer c.Close()
-    
+
   err := c.Call(rpcname, args, reply)
   if err == nil {
     return true
@@ -67,10 +76,37 @@ func call(srv string, rpcname string,
 // says the key doesn't exist (has never been Put().
 //
 func (ck *Clerk) Get(key string) string {
-
   // Your code here.
+  defer func() {
+    ck.seq += 1
+  }()
 
-  return "???"
+  for ck.primary == "" {
+    ck.primary = ck.vs.Primary()
+  }
+  tries := 0
+  xid := strconv.FormatInt(ck.clientId, 10) + strconv.Itoa(ck.seq)
+
+  args := &GetArgs{key, xid}
+  var reply GetReply
+
+  for {
+    ok := call(ck.primary, "PBServer.Get", args, &reply)
+    if ok {
+      if reply.Err == OK {
+        return reply.Value
+      } else if reply.Err == ErrNoKey {
+        return ""
+      } else if reply.Err == ErrWrongServer {
+        ck.primary = ck.vs.Primary()
+      }
+    } else if tries == viewservice.DeadPings {
+      ck.primary = ck.vs.Primary()
+      tries = 0
+    } else {
+      tries += 1
+    }
+  }
 }
 
 //
@@ -78,14 +114,44 @@ func (ck *Clerk) Get(key string) string {
 // must keep trying until it succeeds.
 //
 func (ck *Clerk) PutExt(key string, value string, dohash bool) string {
-
   // Your code here.
-  return "???"
+  defer func() {
+    ck.seq += 1
+  }()
+
+  for ck.primary == "" {
+    ck.primary = ck.vs.Primary()
+  }
+
+  // fmt.Println("call to put")
+  // fmt.Println(ck)
+  tries := 0
+  xid := strconv.FormatInt(ck.clientId, 10) + strconv.Itoa(ck.seq)
+
+  args := &PutArgs{key, value, dohash, xid}
+  var reply PutReply
+  for {
+    ok := call(ck.primary, "PBServer.Put", args, &reply)
+    if ok {
+      if reply.Err == OK {
+        return reply.PreviousValue
+      } else if reply.Err == ErrWrongServer {
+        ck.primary = ck.vs.Primary()
+      }
+    } else if tries == viewservice.DeadPings {
+      ck.primary = ck.vs.Primary()
+      tries = 0
+    } else {
+      tries += 1
+    }
+  }
 }
 
 func (ck *Clerk) Put(key string, value string) {
+  // fmt.Println(key + " " + value)
   ck.PutExt(key, value, false)
 }
+
 func (ck *Clerk) PutHash(key string, value string) string {
   v := ck.PutExt(key, value, true)
   return v
