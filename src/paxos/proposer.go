@@ -7,10 +7,13 @@ func (px *Paxos) Propose(seq int, v interface{}) {
     n := getRandom(largest, px.me)
 
     prepareOk, largestNPrepare, _, v_prime := px.ProposePrepare(seq, n)
-
     if !prepareOk {
       largest = largestNPrepare
       continue
+    }
+
+    if v_prime == nil {
+      v_prime = v
     }
 
     acceptOk, _, largestNAccept := px.ProposeAccept(seq, n, v_prime)

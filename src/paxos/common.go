@@ -54,5 +54,5 @@ type DoneArgs struct {
 type DoneReply struct {}
 
 func NewPaxosInstance(n int) PaxosInstance {
-  return PaxosInstance{n, -1, -1, "", false}
+  return PaxosInstance{n, -1, -1, false, false}
 }

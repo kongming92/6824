@@ -13,7 +13,7 @@ func (px *Paxos) Prepare(args *PrepareArgs, reply *PrepareReply) error {
     instance.n_p = args.N
     *reply = PrepareReply{instance.instanceNum, OK, args.N, instance.n_a, instance.v_a}
   } else {
-    *reply = PrepareReply{instance.instanceNum, Reject, instance.n_p, -1, ""}
+    *reply = PrepareReply{instance.instanceNum, Reject, instance.n_p, -1, nil}
   }
 
   px.instances[args.InstanceNum] = instance

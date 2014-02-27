@@ -90,8 +90,9 @@ func call(srv string, name string, args interface{}, reply interface{}) bool {
 // is reached.
 //
 func (px *Paxos) Start(seq int, v interface{}) {
-  // Your code here.
-  go px.Propose(seq, v)
+  if seq >= px.Min() {
+    go px.Propose(seq, v)
+  }
 }
 
 //
@@ -101,9 +102,17 @@ func (px *Paxos) Start(seq int, v interface{}) {
 // see the comments for Min() for more explanation.
 //
 func (px *Paxos) Done(seq int) {
-  px.mu.Lock()
-  defer px.mu.Unlock()
-
+  for i, peer := range px.peers {
+    if i == px.me {
+      px.mu.Lock()
+      px.dones[px.me] = seq
+      px.mu.Unlock()
+    } else {
+      doneArgs := &DoneArgs{px.me, seq}
+      var reply DoneReply
+      call(peer, "Paxos.SetDone", doneArgs, &reply)
+    }
+  }
 }
 
 //
@@ -153,8 +162,30 @@ func (px *Paxos) Max() int {
 // instances.
 //
 func (px *Paxos) Min() int {
-  // You code here.
-  return 0
+  px.mu.Lock()
+  defer px.mu.Unlock()
+
+  min, ok := px.dones[px.me]
+
+  if !ok {
+    return 0
+  }
+  for i, _ := range px.peers {
+    val, hasMin := px.dones[i]
+    if !hasMin {
+      return 0
+    }
+    if val < min {
+      min = val
+    }
+  }
+
+  for i := range px.instances {
+    if i < min {
+      delete(px.instances, i)
+    }
+  }
+  return min + 1
 }
 
 //
@@ -165,9 +196,6 @@ func (px *Paxos) Min() int {
 // it should not contact other Paxos peers.
 //
 func (px *Paxos) Status(seq int) (bool, interface{}) {
-  px.mu.Lock()
-  defer px.mu.Unlock()
-
   if seq < px.Min() {
     return false, nil
   }
