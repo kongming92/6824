@@ -170,7 +170,7 @@ func (px *Paxos) Min() int {
   if !ok {
     return 0
   }
-  for i, _ := range px.peers {
+  for i := range px.peers {
     val, hasMin := px.dones[i]
     if !hasMin {
       return 0
