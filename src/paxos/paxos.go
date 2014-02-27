@@ -29,7 +29,6 @@ import "sync"
 import "fmt"
 import "math/rand"
 
-
 type Paxos struct {
   mu sync.Mutex
   l net.Listener
@@ -39,8 +38,11 @@ type Paxos struct {
   peers []string
   me int // index into peers[]
 
+  // Map from instance number to instance state
+  instances map[int]PaxosInstance
 
-  // Your data here.
+  // Map from peer number to instance number
+  dones map[int]int
 }
 
 //
@@ -69,7 +71,7 @@ func call(srv string, name string, args interface{}, reply interface{}) bool {
     return false
   }
   defer c.Close()
-    
+
   err = c.Call(name, args, reply)
   if err == nil {
     return true
@@ -89,6 +91,7 @@ func call(srv string, name string, args interface{}, reply interface{}) bool {
 //
 func (px *Paxos) Start(seq int, v interface{}) {
   // Your code here.
+  go px.Propose(seq, v)
 }
 
 //
@@ -98,7 +101,9 @@ func (px *Paxos) Start(seq int, v interface{}) {
 // see the comments for Min() for more explanation.
 //
 func (px *Paxos) Done(seq int) {
-  // Your code here.
+  px.mu.Lock()
+  defer px.mu.Unlock()
+
 }
 
 //
@@ -107,8 +112,16 @@ func (px *Paxos) Done(seq int) {
 // this peer.
 //
 func (px *Paxos) Max() int {
-  // Your code here.
-  return 0
+  px.mu.Lock()
+  defer px.mu.Unlock()
+
+  max := -1
+  for i := range px.instances {
+    if i > max {
+      max = i
+    }
+  }
+  return max
 }
 
 //
@@ -138,7 +151,7 @@ func (px *Paxos) Max() int {
 // life, it will need to catch up on instances that it
 // missed -- the other peers therefor cannot forget these
 // instances.
-// 
+//
 func (px *Paxos) Min() int {
   // You code here.
   return 0
@@ -152,10 +165,14 @@ func (px *Paxos) Min() int {
 // it should not contact other Paxos peers.
 //
 func (px *Paxos) Status(seq int) (bool, interface{}) {
-  // Your code here.
-  return false, nil
-}
+  px.mu.Lock()
+  defer px.mu.Unlock()
 
+  if seq < px.Min() {
+    return false, nil
+  }
+  return px.instances[seq].decided, px.instances[seq].v_a
+}
 
 //
 // tell the peer to shut itself down.
@@ -179,8 +196,9 @@ func Make(peers []string, me int, rpcs *rpc.Server) *Paxos {
   px.peers = peers
   px.me = me
 
-
   // Your initialization code here.
+  px.instances = make(map[int]PaxosInstance)
+  px.dones = make(map[int]int)
 
   if rpcs != nil {
     // caller will create socket &c
@@ -197,10 +215,10 @@ func Make(peers []string, me int, rpcs *rpc.Server) *Paxos {
       log.Fatal("listen error: ", e);
     }
     px.l = l
-    
+
     // please do not change any of the following code,
     // or do anything to subvert it.
-    
+
     // create a thread to accept RPC connections
     go func() {
       for px.dead == false {
