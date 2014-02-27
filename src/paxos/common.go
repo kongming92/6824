@@ -46,6 +46,13 @@ type DecidedArgs struct {
 
 type DecidedReply struct {}
 
+type DoneArgs struct {
+  PeerNum int
+  InstanceNum int
+}
+
+type DoneReply struct {}
+
 func NewPaxosInstance(n int) PaxosInstance {
   return PaxosInstance{n, -1, -1, "", false}
 }

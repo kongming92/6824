@@ -56,3 +56,11 @@ func (px *Paxos) Decided(args *DecidedArgs, reply *DecidedReply) error {
   px.instances[args.InstanceNum] = instance
   return nil
 }
+
+func (px *Paxos) SetDone(args *DoneArgs, reply *DoneReply) error {
+  px.mu.Lock()
+  defer px.mu.Unlock()
+
+  px.dones[args.PeerNum] = args.InstanceNum
+  return nil
+}
