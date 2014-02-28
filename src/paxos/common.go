@@ -30,6 +30,8 @@ type AcceptArgs struct {
   InstanceNum int
   N int
   V interface{}
+  Me int
+  Done int
 }
 
 type AcceptReply struct {

@@ -102,17 +102,10 @@ func (px *Paxos) Start(seq int, v interface{}) {
 // see the comments for Min() for more explanation.
 //
 func (px *Paxos) Done(seq int) {
-  for i, peer := range px.peers {
-    if i == px.me {
-      px.mu.Lock()
-      px.dones[px.me] = seq
-      px.mu.Unlock()
-    } else {
-      doneArgs := &DoneArgs{px.me, seq}
-      var reply DoneReply
-      call(peer, "Paxos.SetDone", doneArgs, &reply)
-    }
-  }
+  px.mu.Lock()
+  defer px.mu.Unlock()
+
+  px.dones[px.me] = seq
 }
 
 //
@@ -165,6 +158,10 @@ func (px *Paxos) Min() int {
   px.mu.Lock()
   defer px.mu.Unlock()
 
+  return px.MinLocked()
+}
+
+func (px *Paxos) MinLocked() int {
   min, ok := px.dones[px.me]
 
   if !ok {
@@ -181,7 +178,7 @@ func (px *Paxos) Min() int {
   }
 
   for i := range px.instances {
-    if i < min {
+    if i <= min {
       delete(px.instances, i)
     }
   }
@@ -196,7 +193,10 @@ func (px *Paxos) Min() int {
 // it should not contact other Paxos peers.
 //
 func (px *Paxos) Status(seq int) (bool, interface{}) {
-  if seq < px.Min() {
+  px.mu.Lock()
+  defer px.mu.Unlock()
+
+  if seq < px.MinLocked() {
     return false, nil
   }
   return px.instances[seq].decided, px.instances[seq].v_a

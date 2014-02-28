@@ -4,6 +4,11 @@ func (px *Paxos) Prepare(args *PrepareArgs, reply *PrepareReply) error {
   px.mu.Lock()
   defer px.mu.Unlock()
 
+  if args.InstanceNum < px.MinLocked() {
+    *reply = PrepareReply{args.InstanceNum, Reject, args.N, -1, nil}
+    return nil
+  }
+
   instance, ok := px.instances[args.InstanceNum]
   if !ok {
     instance = NewPaxosInstance(args.InstanceNum)
@@ -24,9 +29,18 @@ func (px *Paxos) Accept(args *AcceptArgs, reply *AcceptReply) error {
   px.mu.Lock()
   defer px.mu.Unlock()
 
+  if args.InstanceNum < px.MinLocked() {
+    *reply = AcceptReply{args.InstanceNum, Reject, args.N}
+    return nil
+  }
+
   instance, ok := px.instances[args.InstanceNum]
   if !ok {
     instance = NewPaxosInstance(args.InstanceNum)
+  }
+
+  if px.me != args.Me {
+    px.dones[args.Me] = args.Done
   }
 
   if args.N >= instance.n_p {
@@ -46,6 +60,10 @@ func (px *Paxos) Decided(args *DecidedArgs, reply *DecidedReply) error {
   px.mu.Lock()
   defer px.mu.Unlock()
 
+  if args.InstanceNum < px.MinLocked() {
+    return nil
+  }
+
   instance, ok := px.instances[args.InstanceNum]
   if !ok {
     instance = NewPaxosInstance(args.InstanceNum)
@@ -61,6 +79,8 @@ func (px *Paxos) SetDone(args *DoneArgs, reply *DoneReply) error {
   px.mu.Lock()
   defer px.mu.Unlock()
 
-  px.dones[args.PeerNum] = args.InstanceNum
+  if args.InstanceNum >= px.MinLocked() {
+    px.dones[args.PeerNum] = args.InstanceNum
+  }
   return nil
 }

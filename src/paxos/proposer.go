@@ -5,10 +5,15 @@ func (px *Paxos) Propose(seq int, v interface{}) {
   largest := 0
   for !decided {
     n := getRandom(largest, px.me)
+    largest = n
 
     prepareOk, largestNPrepare, _, v_prime := px.ProposePrepare(seq, n)
-    if !prepareOk {
+
+    if largest < largestNPrepare {
       largest = largestNPrepare
+    }
+
+    if !prepareOk {
       continue
     }
 
@@ -18,8 +23,11 @@ func (px *Paxos) Propose(seq int, v interface{}) {
 
     acceptOk, _, largestNAccept := px.ProposeAccept(seq, n, v_prime)
 
-    if !acceptOk {
+    if largest < largestNAccept {
       largest = largestNAccept
+    }
+
+    if !acceptOk {
       continue
     }
 
@@ -29,8 +37,8 @@ func (px *Paxos) Propose(seq int, v interface{}) {
 }
 
 func getRandom(largest int, me int) (int) {
-  num := (largest / 10000) + 1
-  return num * 10000 + me
+  num := (largest / 1000) + 1
+  return num * 1000 + me
 }
 
 func (px *Paxos) ProposePrepare(seq int, n int) (bool, int, int, interface{}) {
@@ -93,10 +101,14 @@ func (px *Paxos) ProposeAccept(seq int, n int, v_prime interface{}) (bool, int, 
   responses := make([]bool, len(px.peers))
   highestN_p := -1
 
+  px.mu.Lock()
+  done := px.dones[px.me]
+  px.mu.Unlock()
+
   for i, peer := range px.peers {
 
     // Send Accept
-    acceptArgs := &AcceptArgs{seq, n, v_prime}
+    acceptArgs := &AcceptArgs{seq, n, v_prime, px.me, done}
     success := false
     var reply AcceptReply
 
