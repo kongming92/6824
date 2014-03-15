@@ -3,7 +3,7 @@ package paxos
 func (px *Paxos) Propose(seq int, v interface{}) {
   decided := false
   largest := 0
-  for !decided {
+  for !decided && px.dead == false {
     n := getRandom(largest, px.me)
     largest = n
 

@@ -2,17 +2,36 @@ package kvpaxos
 
 import "net/rpc"
 import "fmt"
+import "crypto/rand"
+import "math/big"
+import mathrand "math/rand"
+import "strconv"
+import "time"
+
+const MAX_TRIES = 10
 
 type Clerk struct {
   servers []string
   // You will have to modify this struct.
+  seq int
+  clientId int64
+  currentServer int
 }
 
+func nrand() int64 {
+  max := big.NewInt(int64(1) << 62)
+  bigx, _ := rand.Int(rand.Reader, max)
+  x := bigx.Int64()
+  return x
+}
 
 func MakeClerk(servers []string) *Clerk {
   ck := new(Clerk)
   ck.servers = servers
   // You'll have to add code here.
+  ck.seq = 0
+  ck.clientId = nrand()
+  ck.currentServer = 0
   return ck
 }
 
@@ -39,7 +58,7 @@ func call(srv string, rpcname string,
     return false
   }
   defer c.Close()
-    
+
   err := c.Call(rpcname, args, reply)
   if err == nil {
     return true
@@ -56,7 +75,32 @@ func call(srv string, rpcname string,
 //
 func (ck *Clerk) Get(key string) string {
   // You will have to modify this function.
-  return ""
+  defer func() {
+    ck.seq += 1
+  }()
+
+  tries := 0
+  xid := strconv.FormatInt(ck.clientId, 10) + strconv.Itoa(ck.seq)
+
+  args := &GetArgs{key, xid}
+  var reply GetReply
+
+  for {
+    ok := call(ck.servers[ck.currentServer], "KVPaxos.Get", args, &reply)
+    if ok {
+      if reply.Err == OK {
+        return reply.Value
+      } else if reply.Err == ErrNoKey {
+        return ""
+      }
+    } else if tries == MAX_TRIES {
+      ck.currentServer = mathrand.Intn(len(ck.servers))
+      tries = 0
+    } else {
+      tries += 1
+    }
+    time.Sleep(200 * time.Millisecond)
+  }
 }
 
 //
@@ -65,12 +109,33 @@ func (ck *Clerk) Get(key string) string {
 //
 func (ck *Clerk) PutExt(key string, value string, dohash bool) string {
   // You will have to modify this function.
-  return ""
+  defer func() {
+    ck.seq += 1
+  }()
+
+  tries := 0
+  xid := strconv.FormatInt(ck.clientId, 10) + strconv.Itoa(ck.seq)
+
+  args := &PutArgs{key, value, dohash, xid, ck.clientId, ck.seq}
+  var reply PutReply
+  for {
+    ok := call(ck.servers[ck.currentServer], "KVPaxos.Put", args, &reply)
+    if ok && reply.Err == OK {
+      return reply.PreviousValue
+    } else if tries == MAX_TRIES {
+      ck.currentServer = mathrand.Intn(len(ck.servers))
+      tries = 0
+    } else {
+      tries += 1
+    }
+    time.Sleep(100 * time.Millisecond)
+  }
 }
 
 func (ck *Clerk) Put(key string, value string) {
   ck.PutExt(key, value, false)
 }
+
 func (ck *Clerk) PutHash(key string, value string) string {
   v := ck.PutExt(key, value, true)
   return v

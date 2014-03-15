@@ -1,0 +1,7 @@
+#!/bin/bash
+for i in {1..100}
+do
+  echo $i
+  go test > test_out1 2>/dev/null
+  cat test_out1 | egrep -av 'EOF|connection|broken|socket' >> test_output
+done
