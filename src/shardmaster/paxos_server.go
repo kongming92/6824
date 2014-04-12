@@ -16,7 +16,6 @@ func (sm *ShardMaster) StartAndWait(op Op) interface{} {
 func (sm *ShardMaster) WaitAndReturn(seq int, op Op) interface{} {
   // xid := op.Xid
   to := 10 * time.Millisecond
-
   newSeq := seq
 
   for !sm.dead {
@@ -50,7 +49,6 @@ func (sm *ShardMaster) WaitAndReturn(seq int, op Op) interface{} {
       }
     }
   }
-
   return ""
 }
 
@@ -70,7 +68,6 @@ func (sm *ShardMaster) DoCmd(op *Op) interface{} {
 }
 
 func (sm *ShardMaster) DoJoin(args JoinArgs) JoinReply {
-  // fmt.Println("JOIN FOR", args.GID)
   config := sm.GetNextCopy()
   config.Groups[args.GID] = args.Servers
 
@@ -120,8 +117,6 @@ func (sm *ShardMaster) DoJoin(args JoinArgs) JoinReply {
 }
 
 func (sm *ShardMaster) DoLeave(args LeaveArgs) LeaveReply {
-  // fmt.Println("LEAVE FOR", args.GID)
-
   config := sm.GetNextCopy()
   delete(config.Groups, args.GID)
 
@@ -133,9 +128,6 @@ func (sm *ShardMaster) DoLeave(args LeaveArgs) LeaveReply {
     gids = append(gids, gid)
   }
   sort.Sort(gids)
-  // fmt.Println("GIDS", gids)
-  // fmt.Println("SHARDS", config.Shards)
-
   removeCount := 0
   for _, gid := range(config.Shards) {
     if gid == args.GID {
@@ -156,14 +148,10 @@ func (sm *ShardMaster) DoLeave(args LeaveArgs) LeaveReply {
       }
     }
 
-    // fmt.Println("COUNTS", counts)
-
     min := len(config.Shards)
     minGid := int64(0)
     for _, gid := range(gids) {
-      // fmt.Println("GID & COUNTS", gid, counts)
       if counts[gid] < min && gid != args.GID {
-        // fmt.Println(counts[gid])
         min = counts[gid]
         minGid = gid
       }

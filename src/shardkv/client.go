@@ -5,20 +5,32 @@ import "net/rpc"
 import "time"
 import "sync"
 import "fmt"
+import "crypto/rand"
+import "math/big"
 
 type Clerk struct {
   mu sync.Mutex // one RPC at a time
   sm *shardmaster.Clerk
   config shardmaster.Config
   // You'll have to modify Clerk.
+  seq int
+  clientId int64
 }
 
+func nrand() int64 {
+  max := big.NewInt(int64(1) << 62)
+  bigx, _ := rand.Int(rand.Reader, max)
+  x := bigx.Int64()
+  return x
+}
 
 
 func MakeClerk(shardmasters []string) *Clerk {
   ck := new(Clerk)
   ck.sm = shardmaster.MakeClerk(shardmasters)
   // You'll have to modify MakeClerk.
+  ck.seq = 0
+  ck.clientId = nrand()
   return ck
 }
 
@@ -45,7 +57,7 @@ func call(srv string, rpcname string,
     return false
   }
   defer c.Close()
-    
+
   err := c.Call(rpcname, args, reply)
   if err == nil {
     return true
@@ -76,10 +88,12 @@ func key2shard(key string) int {
 //
 func (ck *Clerk) Get(key string) string {
   ck.mu.Lock()
-  defer ck.mu.Unlock()
+  defer func() {
+    ck.seq += 1
+    ck.mu.Unlock()
+  }()
 
   // You'll have to modify Get().
-
   for {
     shard := key2shard(key)
 
@@ -92,6 +106,8 @@ func (ck *Clerk) Get(key string) string {
       for _, srv := range servers {
         args := &GetArgs{}
         args.Key = key
+        args.ClientId = ck.clientId
+        args.Seq = ck.seq
         var reply GetReply
         ok := call(srv, "ShardKV.Get", args, &reply)
         if ok && (reply.Err == OK || reply.Err == ErrNoKey) {
@@ -113,10 +129,12 @@ func (ck *Clerk) Get(key string) string {
 
 func (ck *Clerk) PutExt(key string, value string, dohash bool) string {
   ck.mu.Lock()
-  defer ck.mu.Unlock()
+  defer func() {
+    ck.seq += 1
+    ck.mu.Unlock()
+  }()
 
   // You'll have to modify Put().
-
   for {
     shard := key2shard(key)
 
@@ -131,6 +149,8 @@ func (ck *Clerk) PutExt(key string, value string, dohash bool) string {
         args.Key = key
         args.Value = value
         args.DoHash = dohash
+        args.ClientId = ck.clientId
+        args.Seq = ck.seq
         var reply PutReply
         ok := call(srv, "ShardKV.Put", args, &reply)
         if ok && reply.Err == OK {

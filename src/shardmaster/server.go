@@ -11,7 +11,8 @@ import "syscall"
 import "encoding/gob"
 import "math/rand"
 import "math/big"
-import cryptrand"crypto/rand"
+import cryptrand "crypto/rand"
+import "reflect"
 
 type ShardMaster struct {
   mu sync.Mutex
@@ -24,7 +25,6 @@ type ShardMaster struct {
   configs []Config // indexed by config num
   lastExecuted int
 }
-
 
 type Op struct {
   // Your data here.
@@ -103,8 +103,11 @@ func (sm *ShardMaster) Query(args *QueryArgs, reply *QueryReply) error {
   sm.mu.Lock()
   defer sm.mu.Unlock()
 
-  res := (sm.StartAndWait(Op{"Query", nrand(), *args})).(QueryReply)
-  reply.Config = res.Config
+  res := sm.StartAndWait(Op{"Query", nrand(), *args})
+  if reflect.TypeOf(res) == reflect.TypeOf(QueryReply{}) {
+    resQuery := res.(QueryReply)
+    reply.Config = resQuery.Config
+  }
   return nil
 }
 

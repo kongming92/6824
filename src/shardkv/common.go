@@ -24,7 +24,8 @@ type PutArgs struct {
   // You'll have to add definitions here.
   // Field names must start with capital letters,
   // otherwise RPC will break.
-
+  ClientId int64
+  Seq int
 }
 
 type PutReply struct {
@@ -35,11 +36,22 @@ type PutReply struct {
 type GetArgs struct {
   Key string
   // You'll have to add definitions here.
+  ClientId int64
+  Seq int
 }
 
 type GetReply struct {
   Err Err
   Value string
+}
+
+type FetchArgs struct {
+  ConfigNum int
+}
+
+type FetchReply struct {
+  ConfigState ConfigState
+  OK bool
 }
 
 

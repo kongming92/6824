@@ -1,8 +1,9 @@
 #!/bin/bash
+rm test_out1
 for i in {1..100}
 do
   echo $i
-  go test 2>/dev/null | egrep -av 'EOF|connection|broken|socket'
-  #go test > test_out1 2>/dev/null
+  #go test 2>/dev/null | egrep -av 'EOF|connection|broken|socket'
+  go test >> test_out1 2>/dev/null
   #cat test_out1 | egrep -av 'EOF|connection|broken|socket' >> test_output
 done
