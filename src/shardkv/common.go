@@ -26,6 +26,7 @@ type PutArgs struct {
   // otherwise RPC will break.
   ClientId int64
   Seq int
+  ConfigNum int
 }
 
 type PutReply struct {
@@ -38,6 +39,7 @@ type GetArgs struct {
   // You'll have to add definitions here.
   ClientId int64
   Seq int
+  ConfigNum int
 }
 
 type GetReply struct {

@@ -32,12 +32,14 @@ type Op struct {
   ClientId int64
   Seq int
   ConfigEnd int
+  ConfigNum int
 }
 
 type ConfigState struct {
   Table map[string]string
   PutSeqs map[int64]int
   PutResponses map[int64]string
+  TxnLog map[string]string
 }
 
 type ShardKV struct {
@@ -55,6 +57,7 @@ type ShardKV struct {
   table map[string]string
   putSeqs map[int64]int
   putResponses map[int64]string
+  txnLog map[string]string
   localConfig shardmaster.Config
   history map[int]ConfigState
 }
@@ -74,6 +77,7 @@ func (kv *ShardKV) WaitAndReturn(seq int, op *Op) (string, Err) {
 
   for !kv.dead {
     decided, value := kv.px.Status(kv.lastExecuted + 1)
+
     if decided {
       thisOp := value.(Op)
       result, err := kv.DoCmd(&thisOp)
@@ -83,6 +87,7 @@ func (kv *ShardKV) WaitAndReturn(seq int, op *Op) (string, Err) {
       if kv.lastExecuted == newSeq {
         if thisOp.ClientId == op.ClientId && thisOp.Seq == op.Seq {
           kv.px.Done(kv.lastExecuted)
+          time.Sleep(200* time.Millisecond)
           return result, err
 
         } else {
@@ -93,8 +98,9 @@ func (kv *ShardKV) WaitAndReturn(seq int, op *Op) (string, Err) {
 
     } else {
       if to > time.Second {
-        nop := Op{"nop", "", "", false, 0, 0, 0}
+        nop := Op{"nop", "", "", false, 0, 0, 0, 0}
         kv.px.Start(kv.lastExecuted + 1, nop)
+        // time.Sleep(500 * time.Millisecond)
         to = 10 * time.Millisecond
       }
       time.Sleep(to)
@@ -112,9 +118,12 @@ func (kv *ShardKV) DoCmd(op *Op) (string, Err) {
   if (op.OpType == "Get" || op.OpType == "Put") && kv.gid != kv.localConfig.Shards[key2shard(op.Key)] {
     return "", ErrWrongGroup
   }
-
+  if (op.OpType == "Get" || op.OpType == "Put") && kv.localConfig.Num != op.ConfigNum {
+    return "", ErrWrongGroup
+  }
+  xid := strconv.FormatInt(op.ClientId, 10) + strconv.Itoa(op.Seq)
   if op.OpType == "Get" {
-    return kv.DoGet(op.Key)
+    return kv.DoGet(op.Key, xid)
 
   } else if op.OpType == "Put" {
     seq, ok := kv.putSeqs[op.ClientId]
@@ -122,7 +131,7 @@ func (kv *ShardKV) DoCmd(op *Op) (string, Err) {
       return kv.putResponses[op.ClientId], OK
     }
 
-    response, err := kv.DoPut(op.Key, op.Value, op.PutHash)
+    response, err := kv.DoPut(op.Key, op.Value, op.PutHash, xid)
     kv.putSeqs[op.ClientId] = op.Seq
     kv.putResponses[op.ClientId] = response
     return response, err
@@ -133,16 +142,26 @@ func (kv *ShardKV) DoCmd(op *Op) (string, Err) {
   return "", OK
 }
 
-func (kv *ShardKV) DoGet(key string) (string, Err) {
+func (kv *ShardKV) DoGet(key string, xid string) (string, Err) {
+  val, seen := kv.txnLog[xid]
+  if seen {
+    return val, OK
+  }
   value, exists := kv.table[key]
 
   if exists {
+    kv.txnLog[xid] = value
     return value, OK
   }
+  kv.txnLog[xid] = ""
   return "", ErrNoKey
 }
 
-func (kv *ShardKV) DoPut(key string, value string, putHash bool) (string, Err) {
+func (kv *ShardKV) DoPut(key string, value string, putHash bool, xid string) (string, Err) {
+  val, seen := kv.txnLog[xid]
+  if seen {
+    return val, OK
+  }
   prev, exists := kv.table[key]
   if !exists {
     prev = ""
@@ -154,16 +173,17 @@ func (kv *ShardKV) DoPut(key string, value string, putHash bool) (string, Err) {
     kv.table[key] = value
   }
 
+  kv.txnLog[xid] = prev
   return prev, OK
 }
 
 func (kv *ShardKV) DoReconfig(end int) (string, Err) {
 
-  if kv.localConfig.Num == end {
+  if kv.localConfig.Num >= end {
     return "", OK
   }
 
-  kv.history[kv.localConfig.Num] = ConfigState{kv.table, kv.putSeqs, kv.putResponses}
+  kv.history[kv.localConfig.Num] = ConfigState{kv.table, kv.putSeqs, kv.putResponses, kv.txnLog}
   nextConfig := kv.sm.Query(end)
   needToGet := make([]int, 0, shardmaster.NShards)
 
@@ -205,6 +225,11 @@ func (kv *ShardKV) DoReconfig(end int) (string, Err) {
             }
           }
 
+          // update txn log
+          for xid, val := range reply.ConfigState.TxnLog {
+            kv.txnLog[xid] = val
+          }
+
           break
         }
 
@@ -222,7 +247,7 @@ func (kv *ShardKV) Get(args *GetArgs, reply *GetReply) error {
   kv.mu.Lock()
   defer kv.mu.Unlock()
 
-  result, err := kv.StartAndWait(Op{"Get", args.Key, "", false, args.ClientId, args.Seq, 0})
+  result, err := kv.StartAndWait(Op{"Get", args.Key, "", false, args.ClientId, args.Seq, 0, args.ConfigNum})
   reply.Err = err
   reply.Value = result
   return nil
@@ -233,7 +258,7 @@ func (kv *ShardKV) Put(args *PutArgs, reply *PutReply) error {
   kv.mu.Lock()
   defer kv.mu.Unlock()
 
-  result, err := kv.StartAndWait(Op{"Put", args.Key, args.Value, args.DoHash, args.ClientId, args.Seq, 0})
+  result, err := kv.StartAndWait(Op{"Put", args.Key, args.Value, args.DoHash, args.ClientId, args.Seq, 0, args.ConfigNum})
   reply.Err = err
   reply.PreviousValue = result
   return nil
@@ -268,7 +293,7 @@ func (kv *ShardKV) tick() {
   lastNum := kv.sm.Query(-1).Num
 
   if kv.localConfig.Num < lastNum {
-    kv.StartAndWait(Op{"Reconfig", "", "", false, 0, 0, kv.localConfig.Num + 1})
+    kv.StartAndWait(Op{"Reconfig", "", "", false, int64(kv.me), 0, kv.localConfig.Num + 1, 0})
   }
 }
 
@@ -307,6 +332,7 @@ func StartServer(gid int64, shardmasters []string,
   kv.table = make(map[string]string)
   kv.putSeqs = make(map[int64]int)
   kv.putResponses = make(map[int64]string)
+  kv.txnLog = make(map[string]string)
   kv.localConfig = kv.sm.Query(-1)
   kv.history = make(map[int]ConfigState)
 

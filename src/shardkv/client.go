@@ -104,6 +104,7 @@ func (ck *Clerk) Get(key string) string {
         args.Key = key
         args.ClientId = ck.clientId
         args.Seq = ck.seq
+        args.ConfigNum = ck.config.Num
         var reply GetReply
         ok := call(srv, "ShardKV.Get", args, &reply)
         if ok && (reply.Err == OK || reply.Err == ErrNoKey) {
@@ -143,6 +144,7 @@ func (ck *Clerk) PutExt(key string, value string, dohash bool) string {
         args.DoHash = dohash
         args.ClientId = ck.clientId
         args.Seq = ck.seq
+        args.ConfigNum = ck.config.Num
         var reply PutReply
         ok := call(srv, "ShardKV.Put", args, &reply)
         if ok && reply.Err == OK {
@@ -164,6 +166,7 @@ func (ck *Clerk) PutExt(key string, value string, dohash bool) string {
 func (ck *Clerk) Put(key string, value string) {
   ck.PutExt(key, value, false)
 }
+
 func (ck *Clerk) PutHash(key string, value string) string {
   v := ck.PutExt(key, value, true)
   return v
