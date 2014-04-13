@@ -1,1 +1,10 @@
 api.key
+*.tar.gz
+labs/*
+lec/*
+lecnotes/*
+prevquizzes/*
+readings/*
+reviews/*
+sq/*
+*.rtf

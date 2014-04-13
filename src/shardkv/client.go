@@ -88,17 +88,13 @@ func key2shard(key string) int {
 //
 func (ck *Clerk) Get(key string) string {
   ck.mu.Lock()
-  defer func() {
-    ck.seq += 1
-    ck.mu.Unlock()
-  }()
+  defer ck.mu.Unlock()
+  ck.seq += 1
 
   // You'll have to modify Get().
   for {
     shard := key2shard(key)
-
     gid := ck.config.Shards[shard]
-
     servers, ok := ck.config.Groups[gid]
 
     if ok {
@@ -129,17 +125,13 @@ func (ck *Clerk) Get(key string) string {
 
 func (ck *Clerk) PutExt(key string, value string, dohash bool) string {
   ck.mu.Lock()
-  defer func() {
-    ck.seq += 1
-    ck.mu.Unlock()
-  }()
+  defer ck.mu.Unlock()
+  ck.seq += 1
 
   // You'll have to modify Put().
   for {
     shard := key2shard(key)
-
     gid := ck.config.Shards[shard]
-
     servers, ok := ck.config.Groups[gid]
 
     if ok {

@@ -50,6 +50,9 @@ func (px *Paxos) ProposePrepare(seq int, n int) (bool, int, int, interface{}) {
 
   for i, peer := range(px.peers) {
 
+    if px.dead {
+      break
+    }
     // Send Prepare
     prepareArgs := &PrepareArgs{seq, n}
     success := false
@@ -107,6 +110,10 @@ func (px *Paxos) ProposeAccept(seq int, n int, v_prime interface{}) (bool, int, 
 
   for i, peer := range px.peers {
 
+    if px.dead {
+      break
+    }
+
     // Send Accept
     acceptArgs := &AcceptArgs{seq, n, v_prime, px.me, done}
     success := false
@@ -142,6 +149,11 @@ func (px *Paxos) ProposeAccept(seq int, n int, v_prime interface{}) (bool, int, 
 
 func (px *Paxos) ProposeDecided(seq int, n int, v interface{}) {
   for i, peer := range px.peers {
+
+    if px.dead {
+      break
+    }
+
     decidedArgs := &DecidedArgs{seq, n, v}
     var reply DecidedReply
 

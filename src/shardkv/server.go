@@ -18,7 +18,7 @@ const Debug=0
 
 func DPrintf(format string, a ...interface{}) (n int, err error) {
   if Debug > 0 {
-          log.Printf(format, a...)
+    log.Printf(format, a...)
   }
   return
 }
@@ -109,6 +109,10 @@ func (kv *ShardKV) WaitAndReturn(seq int, op *Op) (string, Err) {
 
 // The DoCmd, DoGet, DoPut functions are NOT threadsafe!
 func (kv *ShardKV) DoCmd(op *Op) (string, Err) {
+  if (op.OpType == "Get" || op.OpType == "Put") && kv.gid != kv.localConfig.Shards[key2shard(op.Key)] {
+    return "", ErrWrongGroup
+  }
+
   if op.OpType == "Get" {
     return kv.DoGet(op.Key)
 
@@ -117,10 +121,12 @@ func (kv *ShardKV) DoCmd(op *Op) (string, Err) {
     if ok && seq >= op.Seq {
       return kv.putResponses[op.ClientId], OK
     }
+
     response, err := kv.DoPut(op.Key, op.Value, op.PutHash)
     kv.putSeqs[op.ClientId] = op.Seq
     kv.putResponses[op.ClientId] = response
     return response, err
+
   } else if op.OpType == "Reconfig" {
     return kv.DoReconfig(op.ConfigEnd)
   }
@@ -128,93 +134,86 @@ func (kv *ShardKV) DoCmd(op *Op) (string, Err) {
 }
 
 func (kv *ShardKV) DoGet(key string) (string, Err) {
-  if kv.gid == kv.localConfig.Shards[key2shard(key)] {
-    value, exists := kv.table[key]
+  value, exists := kv.table[key]
 
-    if exists {
-      return value, OK
-    }
-    return "", ErrNoKey
-  } else {
-    return "", ErrWrongGroup
+  if exists {
+    return value, OK
   }
+  return "", ErrNoKey
 }
 
 func (kv *ShardKV) DoPut(key string, value string, putHash bool) (string, Err) {
-  if kv.gid == kv.localConfig.Shards[key2shard(key)] {
-    prev, exists := kv.table[key]
-    if !exists {
-      prev = ""
-    }
-
-    if putHash {
-      kv.table[key] = strconv.Itoa(int(hash(prev + value)))
-    } else {
-      kv.table[key] = value
-    }
-
-    return prev, OK
-  } else {
-    return "", ErrWrongGroup
+  prev, exists := kv.table[key]
+  if !exists {
+    prev = ""
   }
+
+  if putHash {
+    kv.table[key] = strconv.Itoa(int(hash(prev + value)))
+  } else {
+    kv.table[key] = value
+  }
+
+  return prev, OK
 }
 
 func (kv *ShardKV) DoReconfig(end int) (string, Err) {
 
-  for kv.localConfig.Num != end {
-    kv.history[kv.localConfig.Num] = ConfigState{kv.table, kv.putSeqs, kv.putResponses}
-    nextConfig := kv.sm.Query(kv.localConfig.Num + 1)
-    needToGet := make([]int, 0, shardmaster.NShards)
-
-    for i, gid := range kv.localConfig.Shards {
-      // We are responsible for a shard next config
-      if gid != kv.gid && nextConfig.Shards[i] == kv.gid {
-        needToGet = append(needToGet, i)
-      }
-    }
-
-    if len(needToGet) > 0 {
-      // For each shard
-      for _, shard := range needToGet {
-        servers := kv.localConfig.Groups[kv.localConfig.Shards[shard]]
-
-        for _, server := range servers {
-          var reply FetchReply
-          args := FetchArgs{kv.localConfig.Num}
-          nTries := 0
-          for nTries < 10 {
-            ok := call(server, "ShardKV.Fetch", args, &reply)
-            if ok && reply.OK {
-              // Update the table
-              newTable := reply.ConfigState.Table
-              for k, v := range newTable {
-                if key2shard(k) == shard {
-                  kv.table[k] = v
-                }
-              }
-
-              // update client Put info
-              for clientId, seq := range reply.ConfigState.PutSeqs {
-                if kv.putSeqs[clientId] < seq {
-                  kv.putSeqs[clientId] = seq
-                  kv.putResponses[clientId] = reply.ConfigState.PutResponses[clientId]
-                }
-              }
-
-              break
-            }
-            nTries += 1
-          }
-
-          if reply.OK {
-            break
-          }
-        }
-      }
-    }
-    kv.localConfig = nextConfig
+  if kv.localConfig.Num == end {
+    return "", OK
   }
 
+  kv.history[kv.localConfig.Num] = ConfigState{kv.table, kv.putSeqs, kv.putResponses}
+  nextConfig := kv.sm.Query(end)
+  needToGet := make([]int, 0, shardmaster.NShards)
+
+  for i, gid := range kv.localConfig.Shards {
+    // We are responsible for a shard next config
+    if gid != kv.gid && nextConfig.Shards[i] == kv.gid {
+      needToGet = append(needToGet, i)
+    }
+  }
+
+  if len(needToGet) > 0 {
+    // For each shard
+    for _, shard := range needToGet {
+      if kv.dead {
+        break
+      }
+
+      servers := kv.localConfig.Groups[kv.localConfig.Shards[shard]]
+      i := 0
+      for i < len(servers) && !kv.dead {
+        var reply FetchReply
+        args := FetchArgs{kv.localConfig.Num}
+        ok := call(servers[i], "ShardKV.Fetch", args, &reply)
+
+        if ok && reply.OK {
+          // Update the table
+          newTable := reply.ConfigState.Table
+          for k, v := range newTable {
+            if key2shard(k) == shard {
+              kv.table[k] = v
+            }
+          }
+
+          // update client Put info
+          for clientId, seq := range reply.ConfigState.PutSeqs {
+            if kv.putSeqs[clientId] < seq {
+              kv.putSeqs[clientId] = seq
+              kv.putResponses[clientId] = reply.ConfigState.PutResponses[clientId]
+            }
+          }
+
+          break
+        }
+
+        i = (i+1) % len(servers)
+      }
+    }
+  }
+
+  kv.localConfig = nextConfig
   return "", OK
 }
 
@@ -241,8 +240,8 @@ func (kv *ShardKV) Put(args *PutArgs, reply *PutReply) error {
 }
 
 func (kv *ShardKV) Fetch(args *FetchArgs, reply *FetchReply) error {
-  kv.mu.Lock()
-  defer kv.mu.Unlock()
+  // kv.mu.Lock()
+  // defer kv.mu.Unlock()
 
   state, ok := kv.history[args.ConfigNum]
   if ok {
@@ -262,10 +261,14 @@ func (kv *ShardKV) tick() {
   kv.mu.Lock()
   defer kv.mu.Unlock()
 
+  if kv.dead {
+    return
+  }
+
   lastNum := kv.sm.Query(-1).Num
 
-  if kv.localConfig.Num != lastNum {
-    kv.StartAndWait(Op{"Reconfig", "", "", false, 0, 0, lastNum})
+  if kv.localConfig.Num < lastNum {
+    kv.StartAndWait(Op{"Reconfig", "", "", false, 0, 0, kv.localConfig.Num + 1})
   }
 }
 
@@ -289,6 +292,9 @@ func (kv *ShardKV) kill() {
 func StartServer(gid int64, shardmasters []string,
                  servers []string, me int) *ShardKV {
   gob.Register(Op{})
+  gob.Register(GetArgs{})
+  gob.Register(PutArgs{})
+  gob.Register(FetchArgs{})
 
   kv := new(ShardKV)
   kv.me = me
