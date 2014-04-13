@@ -219,7 +219,8 @@ func (kv *ShardKV) DoReconfig(end int) (string, Err) {
 
           // update client Put info
           for clientId, seq := range reply.ConfigState.PutSeqs {
-            if kv.putSeqs[clientId] < seq {
+            _, ok := kv.putSeqs[clientId]
+            if !ok || (kv.putSeqs[clientId] < seq) {
               kv.putSeqs[clientId] = seq
               kv.putResponses[clientId] = reply.ConfigState.PutResponses[clientId]
             }
